@@ -25,7 +25,7 @@ export default function App() {
     if (appState === 'loading') {
       const timer = setTimeout(() => {
         setAppState('dashboard');
-      }, 2500);
+      }, 3200);
       return () => clearTimeout(timer);
     }
   }, [appState]);
