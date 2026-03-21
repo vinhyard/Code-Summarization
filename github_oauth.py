@@ -3,6 +3,11 @@ import os
 from requests_oauthlib import OAuth2Session
 import requests
 from flask_cors import CORS
+from gitingest import ingest
+import ollama
+from pydantic import BaseModel, Field
+from typing import List
+import json
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -13,7 +18,21 @@ REDIRECT_URI = os.getenv('REDIRECT_URI')
 AUTHORIZATION_BASE_URL = 'https://github.com/login/oauth/authorize'
 TOKEN_URL = 'https://github.com/login/oauth/access_token'
 USER_API_URL = 'https://api.github.com/user'
-clean_repos = []
+
+# Pydantic Schema
+class TechItem(BaseModel):
+    name: str
+    category: str = Field(description="Must be a category such as: Language, Cache, Database, Infrastructure, Protocol, Auth")
+    description: str = Field(description="A 1-2 sentence description of how it is used in the repo")
+    docsUrl: str = Field(description="The official documentation URL. If you do not know the exact URL, provide the main website URL. DO NOT leave this blank.")
+class OverviewData(BaseModel):
+    summary: str = Field(descripotion="A 3-4 sentence project summary explaining what the repo does")
+    tech_stack: List[TechItem]
+    insights: List[str] = Field(description="5 key technical insights about the entry points, architecture, or unique configurations")
+    dependencies_list: List[str] = Field(description="Extract the names of external packages/libraries found in dependency files (e.g., package.json, go.mod, requirements.txt, pom.xml).")
+    services_list: List[str] = Field(description="Extract the names of distinct microservices, containers, or applications defined in orchestration files (e.g., docker-compose.yml) or entry point directories (e.g., cmd/). Return ['Monolith] if it is a single service.")
+
+
 # When user clicks "Continue with Github"
 @app.route('/login')
 def github_login():
@@ -70,7 +89,48 @@ def get_github_repos():
         return jsonify(clean_repos)
     else:
         return jsonify({"Error": "Failed to fetch repositories"}), response.status_code
+def processOverview(summary, content):
+    # Calculate lines of code
+    all_lines = content.split("\n")
+    lines_of_code = len([line for line in all_lines if line.strip()])
+    files_analyzed = summary.split('Files analyzed: ')[-1].split("\n")[0] if "Files analyzed:" in summary else "N/A"
+    context = f"File Contents:\n{content}"
+    print("Analyzing with Ollama")
+    schema = OverviewData.model_json_schema()
+    prompt = f"""
+    Analyze the following source code and extract the project summary, tech stack, and key insights.
+    CRITICAL INSTRUCTION: DO NOT output the schema itself. You must output a populated JSON object with the ACTUAL extracted data that conforms to this schema:
+    {json.dumps(schema, indent=2)}
+    Source Code Context:
+    {context}
 
+    """
+    response = ollama.chat(
+        model='llama3.1',
+        messages=[{'role': 'user', 'content': prompt}],
+        format='json',
+        options={
+            'num_ctx': 32000
+        }
+    )
+    
+    ai_data = json.loads(response['message']['content'])
+
+    dependency_count = len(ai_data.get("dependencies_list", []))
+    service_count = len(ai_data.get("services_list", []))
+    metrics = [
+        {"label": "Files Analyzed", "value": files_analyzed, "color": "text-blue-600", "bg": "bg-blue-50"},
+        {"label": "Lines of Code", "value": f"{lines_of_code:,}", "color": "text-green-600", "bg": "bg-green-50"},
+        {"label": "Dependencies", "value": str(dependency_count), "color": "text-orange-600", "bg": "bg-orange-50"},
+        {"label": "Services", "value": str(service_count), "color": "text-purple-600", "bg": "bg-purple-50"}
+    ]
+    print(metrics)
+    return {
+        "summary": ai_data.get("summary", "No summary generated"),
+        "tech_stack": ai_data.get("tech_stack", []),
+        "insights": ai_data.get("insights", []),
+        "metrics": metrics
+    }
 @app.route('/username')
 def get_github_username():
     token = session.get('github_token')
@@ -81,9 +141,38 @@ def get_github_username():
     }
     response = requests.get('https://api.github.com/user', headers=headers)
     if response.status_code == 200:
-        print(response.json().get("login"))
         return jsonify({"username": response.json().get("login")})
     else:
         return jsonify({"Error": "Failed to fetch username"}), response.status_code
+
+@app.route('/analyze', methods=['POST'])
+def analyze_repo():
+    # Implementation for analyzing repositories
+    token = session.get('github_token')
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    repo_url = data.get('repo_url')
+    if not repo_url:
+        return jsonify({"error": "Repository URL is missing"}), 400
+    summary, content = get_gitIngest_data(repo_url)
+    overview_data = processOverview(summary, content)
+    return jsonify(overview_data)
+
+def get_gitIngest_data(repo_url):
+    token = session.get('github_token')
+    # Implementation for fetching Git Ingest data
+    
+    exclude_patterns = [
+        "tests/", "test_*", "*_test.py", "*.spec.ts", 
+        "docs/", "assets/", "public/", "images/",    
+        "*.lock", "package-lock.json", "*.csv",       
+        "migrations/", "vendor/"                     
+    ]
+    summary, tree, content = ingest(
+        repo_url, token=token['access_token'], exclude_patterns=exclude_patterns, max_file_size=50000
+    )
+    return summary, content
+
 if __name__ == '__main__':
     app.run(port=3001, debug=True)

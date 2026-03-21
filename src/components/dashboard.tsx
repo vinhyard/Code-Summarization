@@ -8,6 +8,7 @@ import { EndUserView } from './enduser-view';
 interface DashboardProps {
   projectName: string;
   repoUrl: string;
+  analysisData: any;
 }
 
 type TabType = 'overview' | 'architect' | 'developer' | 'enduser';
@@ -19,7 +20,7 @@ const TABS = [
   { id: 'enduser'   as TabType, label: 'End User View',   icon: Users },
 ];
 
-export function Dashboard({ projectName, repoUrl }: DashboardProps) {
+export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
   const lastAnalyzed = new Date().toLocaleString('en-US', {
@@ -81,7 +82,7 @@ export function Dashboard({ projectName, repoUrl }: DashboardProps) {
 
         {/* Main content */}
         <main className="flex-1 overflow-auto">
-          {activeTab === 'overview'  && <OverviewTab />}
+          {activeTab === 'overview'  && <OverviewTab analysisData={analysisData} />}
           {activeTab === 'architect' && <ArchitectView />}
           {activeTab === 'developer' && <DeveloperView />}
           {activeTab === 'enduser'   && <EndUserView />}
