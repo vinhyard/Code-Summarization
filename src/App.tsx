@@ -16,6 +16,7 @@ export default function App() {
   const [appState, setAppState] = useState<AppState>('login');
   const [selectedRepos, setSelectedRepos] = useState<Repo[]>([]);
   const [isExternalAuth, setisExternalAuth] = useState(false);
+  const [username, setUsername] = useState<string>("");
   // Check for redirect from Flask
   useEffect(() => {
     // On app load, check if we were redirected back from Github auth
@@ -27,8 +28,9 @@ export default function App() {
     }
     
   }, []);
-  const handleConnect = (repos: Repo[]) => {
+  const handleConnect = (repos: Repo[], githubUsername: string) => {
     setSelectedRepos(repos);
+    setUsername(githubUsername);
     setAppState('loading');
   };
 
@@ -52,7 +54,7 @@ export default function App() {
   return (
     <Dashboard
       projectName={selectedRepos[0]?.name || 'Project'}
-      repoUrl={`https://github.com/user/${selectedRepos[0]?.name || 'repo'}`}
+      repoUrl={`https://github.com/${username}/${selectedRepos[0]?.name}`}
     />
   );
 }

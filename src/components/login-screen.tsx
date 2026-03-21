@@ -11,7 +11,7 @@ interface Repo {
 }
 
 interface LoginScreenProps {
-  onConnect: (repos: Repo[]) => void;
+  onConnect: (repos: Repo[], username: string) => void;
   externalAuthSuccess: boolean;
 }
 
@@ -80,7 +80,8 @@ export function LoginScreen({ onConnect, externalAuthSuccess }: LoginScreenProps
   };
 
   const handleConnect = () => {
-    onConnect(repos.filter((r) => selectedRepos.has(r.id)));
+    const chosenRepos = repos.filter((r) => selectedRepos.has(r.id));
+    onConnect(chosenRepos, username);
   };
 // Helper function to format the raw ISO date from GitHub
   const formatDate = (dateString: string) => {
