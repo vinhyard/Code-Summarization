@@ -203,7 +203,6 @@ def analyze_repo():
     summary, content = get_gitIngest_data(repo_url)
     overview_data = processOverview(summary, content)
     overview_data['fileTree'] = build_file_tree(content)
-    print(overview_data['fileTree'])
     return jsonify(overview_data)
 
 def get_gitIngest_data(repo_url):
@@ -220,6 +219,41 @@ def get_gitIngest_data(repo_url):
         repo_url, token=token['access_token'], exclude_patterns=exclude_patterns, max_file_size=50000
     )
     return summary, content
+
+@app.route('/summarize-file', methods=['POST'])
+def summarize_file():
+    token = session.get('github_token')
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    data = request.get_json()
+    file_name = data.get('file_name')
+    file_content = data.get('file_content')
+
+    if not file_content:
+        return jsonify({"error": "Missing file content"}), 400
+    
+    try:
+        safe_content = file_content[:20000]
+        prompt = f"""
+        You are a senior software architect. Read the following source code file named '{file_name}' and explain its purpose in the repository.
+        CRITICAL INSTRUCTION: You MUST respond in exactly 1 or 2 clear, concise sentences. DO NOT use markdown, bolding, or pleasantries. Just the summary. Do not make modification suggestions, only generate a summary of the code.
+        
+        File Content:
+        {safe_content}
+        """
+        response = ollama.chat(
+            model='llama3.1',
+            messages=[{"role": "user", "content": prompt}],
+            options={
+                'temperature': 0.2,
+                'num_predict': 150
+            }
+        )
+        summary = response['message']['content'].strip()
+        return jsonify({"summary": summary})
+    except Exception as e:
+        return jsonify({"error": "Failed to generate summary"})
 
 if __name__ == '__main__':
     app.run(port=3001, debug=True)

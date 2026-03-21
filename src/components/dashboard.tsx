@@ -23,6 +23,7 @@ const TABS = [
 export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
 
+  const [fileSummaries, setFileSummaries] = useState<Record<string, string>>({});
   const lastAnalyzed = new Date().toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -84,7 +85,7 @@ export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps
         <main className="flex-1 overflow-auto">
           {activeTab === 'overview'  && <OverviewTab analysisData={analysisData} />}
           {activeTab === 'architect' && <ArchitectView />}
-          {activeTab === 'developer' && <DeveloperView fileTree={analysisData?.fileTree} />}
+          {activeTab === 'developer' && <DeveloperView fileTree={analysisData?.fileTree} fileSummaries={fileSummaries} setFileSummaries={setFileSummaries}/>}
           {activeTab === 'enduser'   && <EndUserView />}
         </main>
       </div>

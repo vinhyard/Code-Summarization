@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { FileExplorer, FileNode } from './file-explorer';
+import { Sparkles } from 'lucide-react'; // Let's add a cool AI sparkle icon
 
 interface DeveloperViewProps {
   fileTree?: FileNode[];
+  fileSummaries: Record<string, string>;
+  setFileSummaries: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }
 
-// Helper to find the first actual file in the nested tree
 function findFirstFile(nodes: FileNode[]): FileNode | null {
   for (const node of nodes) {
     if (node.type === 'file') return node;
@@ -17,15 +19,47 @@ function findFirstFile(nodes: FileNode[]): FileNode | null {
   return null;
 }
 
-export function DeveloperView({ fileTree }: DeveloperViewProps) {
+export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: DeveloperViewProps) {
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
+  
+  // Keep the loading state local, because it only matters while this tab is active
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
-  // Automatically select the first file when the fileTree loads
   useEffect(() => {
     if (fileTree && fileTree.length > 0 && !selectedFile) {
       setSelectedFile(findFirstFile(fileTree));
     }
   }, [fileTree, selectedFile]);
+
+  useEffect(() => {
+    if (selectedFile?.type === 'file') {
+      if (!fileSummaries[selectedFile.id]) {
+        fetchFileSummary(selectedFile);
+      }
+    }
+  }, [selectedFile]); 
+
+  const fetchFileSummary = async (file: FileNode) => {
+    setIsSummarizing(true);
+    try {
+      const response = await fetch("http://localhost:3001/summarize-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ file_name: file.name, file_content: file.content }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // This now updates the state sitting up in the Dashboard!
+        setFileSummaries((prev) => ({ ...prev, [file.id]: data.summary }));
+      }
+    } catch (err) {
+      console.error("Failed to fetch file summary", err);
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   if (!fileTree) {
     return <div className="p-8 text-gray-500">Waiting for repository files...</div>;
@@ -33,7 +67,7 @@ export function DeveloperView({ fileTree }: DeveloperViewProps) {
 
   return (
     <div className="flex h-full">
-      {/* File tree */}
+      {/* Sidebar (File Tree) */}
       <div className="w-72 border-r border-gray-200 bg-gray-50 shrink-0 flex flex-col">
         <div className="px-4 py-3 border-b border-gray-200">
           <h3 className="text-sm font-medium text-gray-700">Repository Files</h3>
@@ -47,11 +81,11 @@ export function DeveloperView({ fileTree }: DeveloperViewProps) {
         </div>
       </div>
 
-      {/* Content area */}
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 bg-white">
         {selectedFile && selectedFile.type === 'file' ? (
           <>
-            {/* File Header / Summary */}
+            {/* File Header & Dynamic Summary */}
             <div className="border-b border-gray-200 p-6 bg-white shrink-0">
               <div className="flex items-center gap-2 mb-3">
                 <h3 className="text-lg font-medium">{selectedFile.name}</h3>
@@ -59,7 +93,19 @@ export function DeveloperView({ fileTree }: DeveloperViewProps) {
                   {selectedFile.name.split('.').pop()?.toUpperCase() || 'FILE'}
                 </span>
               </div>
-              <p className="text-gray-600 text-sm leading-relaxed">{selectedFile.summary}</p>
+              
+              {/* Conditional rendering for the AI Summary */}
+              {isSummarizing && !fileSummaries[selectedFile.id] ? (
+                <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
+                  <Sparkles className="size-4" />
+                  Generating AI summary...
+                </div>
+              ) : (
+                <p className="text-gray-600 text-sm leading-relaxed">
+                  {/* Show our cached AI summary, or fallback to the generic placeholder */}
+                  {fileSummaries[selectedFile.id] || selectedFile.summary}
+                </p>
+              )}
             </div>
 
             {/* Code preview */}
