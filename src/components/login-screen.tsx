@@ -1,5 +1,5 @@
 import { Github, Check, Star, Users2, Clock } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Repo {
   id: string;
@@ -7,12 +7,12 @@ interface Repo {
   description: string;
   language: string;
   stars: string;
-  contributors: number;
   lastActive: string;
 }
 
 interface LoginScreenProps {
   onConnect: (repos: Repo[]) => void;
+  externalAuthSuccess: boolean;
 }
 
 const LANG_COLORS: Record<string, string> = {
@@ -21,59 +21,54 @@ const LANG_COLORS: Record<string, string> = {
   Python: 'bg-yellow-50 text-yellow-700 border border-yellow-200',
   'React Native': 'bg-purple-50 text-purple-700 border border-purple-200',
 };
+const DEFAULT_LANG_COLOR = 'bg-gray-100 text-gray-700 border border-gray-200';
 
-const MOCK_REPOS: Repo[] = [
-  {
-    id: '1',
-    name: 'api-gateway',
-    description: 'High-performance microservices gateway with JWT auth, rate limiting, and gRPC routing to downstream services',
-    language: 'Go',
-    stars: '2.4k',
-    contributors: 18,
-    lastActive: '2 hours ago',
-  },
-  {
-    id: '2',
-    name: 'ml-pipeline',
-    description: 'End-to-end ML training pipeline with feature engineering, model registry, and online serving layer',
-    language: 'Python',
-    stars: '1.1k',
-    contributors: 12,
-    lastActive: '3 days ago',
-  },
-  {
-    id: '3',
-    name: 'react-dashboard',
-    description: 'Analytics dashboard with real-time charts, data tables, and role-based access control',
-    language: 'TypeScript',
-    stars: '891',
-    contributors: 9,
-    lastActive: '1 day ago',
-  },
-  {
-    id: '4',
-    name: 'mobile-app',
-    description: 'Cross-platform consumer app with offline-first sync, push notifications, and biometric auth',
-    language: 'React Native',
-    stars: '534',
-    contributors: 7,
-    lastActive: '5 days ago',
-  },
-  {
-    id: '5',
-    name: 'design-system',
-    description: 'Shared component library and design tokens used across all frontend products',
-    language: 'TypeScript',
-    stars: '312',
-    contributors: 5,
-    lastActive: '1 week ago',
-  },
-];
 
-export function LoginScreen({ onConnect }: LoginScreenProps) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+export function LoginScreen({ onConnect, externalAuthSuccess }: LoginScreenProps) {
+  const [isAuthenticated, setIsAuthenticated] = useState(externalAuthSuccess);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
+  // State to hold Github repos
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [username, setUsername] = useState<string>("");
+  // Update authentication state if App detects successful auth
+  useEffect(() => {
+    if (externalAuthSuccess) {
+      setIsAuthenticated(true)
+      fetchRepos();
+    }
+  }, [externalAuthSuccess]);
+  const fetchRepos = async () => {
+    setIsLoading(true);
+    try {
+      // Get username
+      const userResponse = await fetch('http://localhost:3001/username', {
+        credentials: 'include' 
+      });
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        setUsername(userData.username);
+      }
+      const response = await fetch('http://localhost:3001/repos', {
+        credentials: 'include' // Include cookies for session
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRepos(data);
+      } else {
+        console.error('Failed to fetch repositories');
+      }
+    } catch (error) {
+      console.error('Error fetching repositories:', error);
+    } finally {
+      setIsLoading(false);
 
+    }
+  };
+  // Redirect to Github login backend endpoint
+  const handleGithubClick = () => {
+    window.location.href = "http://localhost:3001/login";
+  };
   const toggleRepo = (repoId: string) => {
     const next = new Set(selectedRepos);
     if (next.has(repoId)) {
@@ -85,9 +80,14 @@ export function LoginScreen({ onConnect }: LoginScreenProps) {
   };
 
   const handleConnect = () => {
-    onConnect(MOCK_REPOS.filter((r) => selectedRepos.has(r.id)));
+    onConnect(repos.filter((r) => selectedRepos.has(r.id)));
   };
-
+// Helper function to format the raw ISO date from GitHub
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric'
+    });
+  };
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-8">
       <div className="w-full max-w-2xl">
@@ -99,7 +99,8 @@ export function LoginScreen({ onConnect }: LoginScreenProps) {
         {!isAuthenticated ? (
           <div className="flex flex-col items-center gap-6">
             <button
-              onClick={() => setIsAuthenticated(true)}
+            // Redirect to backend for authentication
+              onClick={handleGithubClick}
               className="flex items-center gap-3 px-8 py-4 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
             >
               <Github className="size-5" />
@@ -110,9 +111,12 @@ export function LoginScreen({ onConnect }: LoginScreenProps) {
           <div className="space-y-6">
             <div>
               <h2 className="text-xl mb-1">Select a repository to analyze</h2>
-              <p className="text-gray-500 text-sm mb-4">Connected as <span className="text-gray-900 font-medium">@demo-user</span></p>
-              <div className="space-y-2">
-                {MOCK_REPOS.map((repo) => (
+              <p className="text-gray-500 text-sm mb-4">Connected as <span className="text-gray-900 font-medium">@{username || "Loading..."}</span></p>
+              {isLoading ? (
+                <div className="text-center py-8 text-gray-500">Loading respositories...</div>
+              ) : 
+              (<div className="space-y-2">
+                {repos.map((repo) => (
                   <div
                     key={repo.id}
                     onClick={() => toggleRepo(repo.id)}
@@ -135,8 +139,8 @@ export function LoginScreen({ onConnect }: LoginScreenProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-medium text-sm">{repo.name}</span>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${LANG_COLORS[repo.language]}`}>
-                          {repo.language}
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${LANG_COLORS[repo.language] || DEFAULT_LANG_COLOR}`}>
+                          {repo.language || "Unknown"}
                         </span>
                       </div>
                       <p className="text-gray-500 text-sm mb-2 leading-relaxed">{repo.description}</p>
@@ -146,18 +150,15 @@ export function LoginScreen({ onConnect }: LoginScreenProps) {
                           {repo.stars}
                         </span>
                         <span className="flex items-center gap-1">
-                          <Users2 className="size-3" />
-                          {repo.contributors} contributors
-                        </span>
-                        <span className="flex items-center gap-1">
                           <Clock className="size-3" />
-                          {repo.lastActive}
+                            {formatDate(repo.lastActive)}
                         </span>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
+              )}
             </div>
 
             <button

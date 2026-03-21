@@ -15,7 +15,18 @@ interface Repo {
 export default function App() {
   const [appState, setAppState] = useState<AppState>('login');
   const [selectedRepos, setSelectedRepos] = useState<Repo[]>([]);
-
+  const [isExternalAuth, setisExternalAuth] = useState(false);
+  // Check for redirect from Flask
+  useEffect(() => {
+    // On app load, check if we were redirected back from Github auth
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === 'success') {
+      setisExternalAuth(true);
+      //Clean the URL so a refresh doesn't trigger this again
+      window.history.replaceState({}, document.title, '/');
+    }
+    
+  }, []);
   const handleConnect = (repos: Repo[]) => {
     setSelectedRepos(repos);
     setAppState('loading');
@@ -31,7 +42,7 @@ export default function App() {
   }, [appState]);
 
   if (appState === 'login') {
-    return <LoginScreen onConnect={handleConnect} />;
+    return <LoginScreen onConnect={handleConnect} externalAuthSuccess={isExternalAuth} />;
   }
 
   if (appState === 'loading') {
