@@ -8,6 +8,7 @@ import ollama
 from pydantic import BaseModel, Field
 from typing import List
 import json
+import re
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -26,7 +27,7 @@ class TechItem(BaseModel):
     description: str = Field(description="A 1-2 sentence description of how it is used in the repo")
     docsUrl: str = Field(description="The official documentation URL. If you do not know the exact URL, provide the main website URL. DO NOT leave this blank.")
 class OverviewData(BaseModel):
-    summary: str = Field(descripotion="A 3-4 sentence project summary explaining what the repo does")
+    summary: str = Field(description="A 3-4 sentence project summary explaining what the repo does")
     tech_stack: List[TechItem]
     insights: List[str] = Field(description="5 key technical insights about the entry points, architecture, or unique configurations")
     dependencies_list: List[str] = Field(description="Extract the names of external packages/libraries found in dependency files (e.g., package.json, go.mod, requirements.txt, pom.xml).")
@@ -124,7 +125,6 @@ def processOverview(summary, content):
         {"label": "Dependencies", "value": str(dependency_count), "color": "text-orange-600", "bg": "bg-orange-50"},
         {"label": "Services", "value": str(service_count), "color": "text-purple-600", "bg": "bg-purple-50"}
     ]
-    print(metrics)
     return {
         "summary": ai_data.get("summary", "No summary generated"),
         "tech_stack": ai_data.get("tech_stack", []),
@@ -144,7 +144,52 @@ def get_github_username():
         return jsonify({"username": response.json().get("login")})
     else:
         return jsonify({"Error": "Failed to fetch username"}), response.status_code
+def build_file_tree(gitingest_content: str):
+    # Split the content by the gitingest file separator
+    parts = re.split(r'={10,}\nFILE: (.*?)\n={10,}\n', gitingest_content)
+    
+    root_children = {}
 
+    # parts[0] is the tree preamble. Actual files start at index 1.
+    for i in range(1, len(parts), 2):
+        filepath = parts[i].strip()
+        filecontent = parts[i+1].strip()
+        
+        path_parts = filepath.split('/')
+        current_level = root_children
+
+        for j, part in enumerate(path_parts):
+            if j == len(path_parts) - 1:
+                # We've reached the actual file
+                current_level[part] = {
+                    "id": filepath.replace('/', '-'),
+                    "name": part,
+                    "type": "file",
+                    "content": filecontent,
+                    "summary": f"Source file: {filepath}" # Placeholder summary
+                }
+            else:
+                # We're building the folder structure
+                if part not in current_level:
+                    current_level[part] = {
+                        "id": "-".join(path_parts[:j+1]),
+                        "name": part,
+                        "type": "folder",
+                        "children": {}
+                    }
+                current_level = current_level[part]["children"]
+
+    # Helper to convert the nested dictionaries into lists for React
+    def dict_to_list(node_dict):
+        result = []
+        for key, val in node_dict.items():
+            if val["type"] == "folder":
+                val["children"] = dict_to_list(val["children"])
+            result.append(val)
+        # Sort folders first, then files alphabetically
+        result.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
+        return result
+    return dict_to_list(root_children)
 @app.route('/analyze', methods=['POST'])
 def analyze_repo():
     # Implementation for analyzing repositories
@@ -157,6 +202,8 @@ def analyze_repo():
         return jsonify({"error": "Repository URL is missing"}), 400
     summary, content = get_gitIngest_data(repo_url)
     overview_data = processOverview(summary, content)
+    overview_data['fileTree'] = build_file_tree(content)
+    print(overview_data['fileTree'])
     return jsonify(overview_data)
 
 def get_gitIngest_data(repo_url):
