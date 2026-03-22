@@ -84,7 +84,7 @@ export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps
         {/* Main content */}
         <main className="flex-1 overflow-auto">
           {activeTab === 'overview'  && <OverviewTab analysisData={analysisData} />}
-          {activeTab === 'architect' && <ArchitectView />}
+          {activeTab === 'architect' && <ArchitectView analysisData={analysisData}/>}
           {activeTab === 'developer' && <DeveloperView fileTree={analysisData?.fileTree} fileSummaries={fileSummaries} setFileSummaries={setFileSummaries}/>}
           {activeTab === 'enduser'   && <EndUserView />}
         </main>

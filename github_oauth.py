@@ -32,6 +32,10 @@ class OverviewData(BaseModel):
     insights: List[str] = Field(description="5 key technical insights about the entry points, architecture, or unique configurations")
     dependencies_list: List[str] = Field(description="Extract the names of external packages/libraries found in dependency files (e.g., package.json, go.mod, requirements.txt, pom.xml).")
     services_list: List[str] = Field(description="Extract the names of distinct microservices, containers, or applications defined in orchestration files (e.g., docker-compose.yml) or entry point directories (e.g., cmd/). Return ['Monolith] if it is a single service.")
+    architecture_mermaid: str = Field(
+        description="A valid Mermaid.js flowchart (graph TD) representing the system architecture. Include clients, core services, databases, and external APIs. Keep it clean and high-level. DO NOT wrap in markdown blockquotes."
+
+    )
 
 
 # When user clicks "Continue with Github"
@@ -254,6 +258,58 @@ def summarize_file():
         return jsonify({"summary": summary})
     except Exception as e:
         return jsonify({"error": "Failed to generate summary"})
+@app.route('/generate-architecture', methods=['POST'])
+def generate_architecture():
+    token = session.get('github_token')
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
 
+    data = request.get_json()
+    summary = data.get('summary', '')
+    tech_stack = data.get('tech_stack', [])
+
+    # Format the tech stack into a readable string for the prompt
+    tech_details = "\n".join([f"- {tech['name']} ({tech['category']}): {tech['description']}" for tech in tech_stack])
+
+    prompt = f"""
+    You are a software architect. Based on the following project summary and tech stack, generate a high-level system architecture flowchart using Mermaid.js syntax.
+    
+    Project Summary: 
+    {summary}
+    
+    Tech Stack: 
+    {tech_details}
+    
+    CRITICAL INSTRUCTIONS FOR MERMAID SYNTAX:
+    1. Respond ONLY with the raw Mermaid.js code block starting with `graph TD`.
+    2. Node IDs MUST be a single alphanumeric word with NO SPACES. If the display label needs spaces, you MUST use brackets. Example: ClientNode[Client Application] --> ServerNode[Web Server]
+    3. Use ONLY standard arrows: `-->` for plain arrows, or `-->|label|` for labeled arrows.
+    4. STRICTLY FORBIDDEN: Do not use invalid arrow shapes like `-->|label|>` or `=>`. 
+    5. Do not include markdown formatting like ```mermaid.
+    """
+
+    try:
+        response = ollama.chat(
+            model='llama3.1',
+            messages=[{"role": "user", "content": prompt}],
+            options={
+                'temperature': 0.1, # Very low temperature for strict structural output
+                'num_predict': 300
+            }
+        )
+
+        mermaid_code = response['message']['content'].strip()
+        
+        # Clean up markdown backticks just in case the LLM disobeys the instruction
+        mermaid_code = mermaid_code.replace("```mermaid", "").replace("```", "").strip()
+        
+        mermaid_code = mermaid_code.replace("|>", "|") 
+        mermaid_code = mermaid_code.replace('\xa0', ' ').replace('\u00a0', ' ')
+        print(mermaid_code)
+        return jsonify({"architecture": mermaid_code})
+    
+    except Exception as e:
+        print(f"Error generating architecture: {e}")
+        return jsonify({"error": "Failed to generate architecture"}), 500
 if __name__ == '__main__':
     app.run(port=3001, debug=True)
