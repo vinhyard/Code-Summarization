@@ -32,10 +32,7 @@ class OverviewData(BaseModel):
     insights: List[str] = Field(description="5 key technical insights about the entry points, architecture, or unique configurations")
     dependencies_list: List[str] = Field(description="Extract the names of external packages/libraries found in dependency files (e.g., package.json, go.mod, requirements.txt, pom.xml).")
     services_list: List[str] = Field(description="Extract the names of distinct microservices, containers, or applications defined in orchestration files (e.g., docker-compose.yml) or entry point directories (e.g., cmd/). Return ['Monolith] if it is a single service.")
-    architecture_mermaid: str = Field(
-        description="A valid Mermaid.js flowchart (graph TD) representing the system architecture. Include clients, core services, databases, and external APIs. Keep it clean and high-level. DO NOT wrap in markdown blockquotes."
-
-    )
+    
 
 
 # When user clicks "Continue with Github"
@@ -99,7 +96,8 @@ def processOverview(summary, content):
     all_lines = content.split("\n")
     lines_of_code = len([line for line in all_lines if line.strip()])
     files_analyzed = summary.split('Files analyzed: ')[-1].split("\n")[0] if "Files analyzed:" in summary else "N/A"
-    context = f"File Contents:\n{content}"
+    safe_content = content[:30000]
+    context = f"File Contents:\n{safe_content}"
     print("Analyzing with Ollama")
     schema = OverviewData.model_json_schema()
     prompt = f"""
@@ -115,7 +113,7 @@ def processOverview(summary, content):
         messages=[{'role': 'user', 'content': prompt}],
         format='json',
         options={
-            'num_ctx': 32000
+            'num_ctx': 16000
         }
     )
     
@@ -305,7 +303,6 @@ def generate_architecture():
         
         mermaid_code = mermaid_code.replace("|>", "|") 
         mermaid_code = mermaid_code.replace('\xa0', ' ').replace('\u00a0', ' ')
-        print(mermaid_code)
         return jsonify({"architecture": mermaid_code})
     
     except Exception as e:

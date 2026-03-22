@@ -1,18 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MermaidDiagram } from './mermaid-diagram';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, RefreshCw } from 'lucide-react'; // Added RefreshCw icon
 
 interface ArchitectViewProps {
   analysisData?: any;
+  mermaidChart: string | null;
+  setMermaidChart: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
-export function ArchitectView({ analysisData }: ArchitectViewProps) {
-  const [mermaidChart, setMermaidChart] = useState<string | null>(null);
+export function ArchitectView({ analysisData , mermaidChart, setMermaidChart}: ArchitectViewProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // NEW: Retry logic state
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 3;
+
+  // Added the useRef lock from our previous steps to prevent double-fetching in React 18
+  const hasFetched = useRef(false);
 
   useEffect(() => {
-    // Only fetch if we have data and haven't fetched the chart yet
-    if (analysisData && !mermaidChart && !isGenerating) {
+    if (analysisData && !mermaidChart && !isGenerating && !hasFetched.current) {
+      hasFetched.current = true;
       fetchArchitecture();
     }
   }, [analysisData]);
@@ -24,7 +32,6 @@ export function ArchitectView({ analysisData }: ArchitectViewProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        // Send the previously generated insights so the LLM doesn't have to read the raw code
         body: JSON.stringify({
           summary: analysisData.summary,
           tech_stack: analysisData.tech_stack || []
@@ -37,8 +44,19 @@ export function ArchitectView({ analysisData }: ArchitectViewProps) {
       }
     } catch (err) {
       console.error("Failed to generate architecture chart", err);
+      hasFetched.current = false; // Unlock so user can try again
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  // NEW: The handler that MermaidDiagram will call if it crashes
+  const handleMermaidError = () => {
+    if (retryCount < MAX_RETRIES) {
+      console.log(`Syntax error detected. Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+      setRetryCount((prev) => prev + 1);
+      setMermaidChart(null); // Clear the bad chart
+      fetchArchitecture();   // Ask Ollama to try again
     }
   };
 
@@ -52,16 +70,17 @@ export function ArchitectView({ analysisData }: ArchitectViewProps) {
       <p className="text-gray-500 text-sm mb-8">Auto-generated from repository analysis</p>
 
       {/* Dynamic Diagram Area */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6 mb-8 min-h-[400px] flex items-center justify-center">
+      <div className="bg-white border border-gray-200 rounded-xl mb-8 w-full h-[500px] relative overflow-hidden">
         {isGenerating ? (
-          <div className="flex flex-col items-center gap-3 text-blue-600 animate-pulse">
-            <Sparkles className="size-8" />
-            <p>Drafting architecture diagram...</p>
+          <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-blue-600 animate-pulse">
+            {retryCount > 0 ? <RefreshCw className="size-8 animate-spin" /> : <Sparkles className="size-8" />}
+            <p>{retryCount > 0 ? `Fixing syntax error (Attempt ${retryCount}/${MAX_RETRIES})...` : 'Drafting architecture diagram...'}</p>
           </div>
         ) : mermaidChart ? (
-          <MermaidDiagram chart={mermaidChart} />
+          // NEW: Pass the error handler into the diagram component
+          <MermaidDiagram chart={mermaidChart} onError={handleMermaidError} />
         ) : (
-          <p className="text-gray-500">Failed to generate diagram.</p>
+          <p className="text-gray-500 flex w-full h-full items-center justify-center">Failed to generate diagram.</p>
         )}
       </div>
 

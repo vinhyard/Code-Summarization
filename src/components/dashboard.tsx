@@ -22,7 +22,7 @@ const TABS = [
 
 export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
-
+  const [mermaidChart, setMermaidChart] =  useState<string | null>(null);
   const [fileSummaries, setFileSummaries] = useState<Record<string, string>>({});
   const lastAnalyzed = new Date().toLocaleString('en-US', {
     month: 'short',
@@ -84,7 +84,7 @@ export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps
         {/* Main content */}
         <main className="flex-1 overflow-auto">
           {activeTab === 'overview'  && <OverviewTab analysisData={analysisData} />}
-          {activeTab === 'architect' && <ArchitectView analysisData={analysisData}/>}
+          {activeTab === 'architect' && <ArchitectView analysisData={analysisData} mermaidChart={mermaidChart} setMermaidChart={setMermaidChart}/>}
           {activeTab === 'developer' && <DeveloperView fileTree={analysisData?.fileTree} fileSummaries={fileSummaries} setFileSummaries={setFileSummaries}/>}
           {activeTab === 'enduser'   && <EndUserView />}
         </main>
