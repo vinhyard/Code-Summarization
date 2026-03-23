@@ -33,7 +33,32 @@ class OverviewData(BaseModel):
     dependencies_list: List[str] = Field(description="Extract the names of external packages/libraries found in dependency files (e.g., package.json, go.mod, requirements.txt, pom.xml).")
     services_list: List[str] = Field(description="Extract the names of distinct microservices, containers, or applications defined in orchestration files (e.g., docker-compose.yml) or entry point directories (e.g., cmd/). Return ['Monolith] if it is a single service.")
     
+class Persona(BaseModel):
+    role: str
+    desc: str
+    badge: str
 
+class Flow(BaseModel):
+    title: str
+    color: str = Field(description="Must be exactly one of: 'blue', 'green', or 'purple'")
+    steps: List[str]
+
+class Endpoint(BaseModel):
+    method: str = Field(description="HTTP Method like GET, POST, PUT, etc.")
+    path: str
+    desc: str
+    auth: bool
+
+class ErrorDef(BaseModel):
+    code: str = Field(description="HTTP Status Code like 404, 500, etc.")
+    label: str
+    desc: str
+
+class EndUserData(BaseModel):
+    personas: List[Persona]
+    flows: List[Flow]
+    endpoints: List[Endpoint]
+    errors: List[ErrorDef]
 
 # When user clicks "Continue with Github"
 @app.route('/login')
@@ -113,7 +138,7 @@ def processOverview(summary, content):
         messages=[{'role': 'user', 'content': prompt}],
         format='json',
         options={
-            'num_ctx': 16000
+            'num_ctx': 32000
         }
     )
     
@@ -308,5 +333,58 @@ def generate_architecture():
     except Exception as e:
         print(f"Error generating architecture: {e}")
         return jsonify({"error": "Failed to generate architecture"}), 500
+    
+@app.route('/generate-enduser', methods=['POST'])
+def generate_enduser():
+    token = session.get('github_token')
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    summary = data.get('summary', '')
+    tech_stack = data.get('tech_stack', [])
+    tech_details = "\n".join([f"- {tech['name']} ({tech['category']}): {tech['description']}" for tech in tech_stack])
+
+    prompt = f"""
+    Based on the following project summary and tech stack, act as a Technical Writer and generate an API/Consumer Guide.
+    Infer the likely personas, key usage flows, API endpoints (or core functions), and common errors.
+    
+    Project Summary: {summary}
+    Tech Stack: {tech_details}
+    
+    CRITICAL INSTRUCTION: Output ONLY a valid JSON object matching this EXACT skeleton. Do not add any outer wrappers like "EndUserData".
+    {{
+      "personas": [
+        {{ "role": "Role Name", "desc": "1 sentence description", "badge": "Web/Mobile/Partner" }}
+      ],
+      "flows": [
+        {{ "title": "Flow Name", "color": "blue", "steps": ["step 1", "step 2", "step 3"] }}
+      ],
+      "endpoints": [
+        {{ "method": "GET", "path": "/api/example", "desc": "What it does", "auth": true }}
+      ],
+      "errors": [
+        {{ "code": "400", "label": "Bad Request", "desc": "Why it happens" }}
+      ]
+    }}
+    """
+
+    try:
+        response = ollama.chat(
+            model='llama3.1',
+            messages=[{"role": "user", "content": prompt}],
+            format='json',
+            options={'temperature': 0.2, 'num_predict': 1000}
+        )
+        
+        # Parse the string into a python dictionary
+        ai_data = json.loads(response['message']['content'])
+        
+        
+        return jsonify(ai_data)
+    
+    except Exception as e:
+        print(f"Error generating end user guide: {e}")
+        return jsonify({"error": "Failed to generate guide"}), 500
 if __name__ == '__main__':
     app.run(port=3001, debug=True)

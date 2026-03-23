@@ -24,6 +24,7 @@ export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [mermaidChart, setMermaidChart] =  useState<string | null>(null);
   const [fileSummaries, setFileSummaries] = useState<Record<string, string>>({});
+  const [endUserData, setEndUserData] = useState<any>(null);
   const lastAnalyzed = new Date().toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -86,7 +87,7 @@ export function Dashboard({ projectName, repoUrl, analysisData }: DashboardProps
           {activeTab === 'overview'  && <OverviewTab analysisData={analysisData} />}
           {activeTab === 'architect' && <ArchitectView analysisData={analysisData} mermaidChart={mermaidChart} setMermaidChart={setMermaidChart}/>}
           {activeTab === 'developer' && <DeveloperView fileTree={analysisData?.fileTree} fileSummaries={fileSummaries} setFileSummaries={setFileSummaries}/>}
-          {activeTab === 'enduser'   && <EndUserView />}
+          {activeTab === 'enduser'   && <EndUserView analysisData={analysisData} endUserData={endUserData} setEndUserData={setEndUserData}/>}
         </main>
       </div>
     </div>
