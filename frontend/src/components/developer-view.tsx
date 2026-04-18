@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
 import { FileExplorer, FileNode } from './file-explorer';
-import { Sparkles } from 'lucide-react'; // Let's add a cool AI sparkle icon
+import { Sparkles } from 'lucide-react';
 
 interface DeveloperViewProps {
+  repoUrl: string;
   fileTree?: FileNode[];
   fileSummaries: Record<string, string>;
   setFileSummaries: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  fileContents: Record<string, string>;
+  setFileContents: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 }
 
 function findFirstFile(nodes: FileNode[]): FileNode | null {
@@ -19,10 +22,16 @@ function findFirstFile(nodes: FileNode[]): FileNode | null {
   return null;
 }
 
-export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: DeveloperViewProps) {
+export function DeveloperView({
+  repoUrl,
+  fileTree,
+  fileSummaries,
+  setFileSummaries,
+  fileContents,
+  setFileContents,
+}: DeveloperViewProps) {
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
-  
-  // Keep the loading state local, because it only matters while this tab is active
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   useEffect(() => {
@@ -32,26 +41,59 @@ export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: Dev
   }, [fileTree, selectedFile]);
 
   useEffect(() => {
-    if (selectedFile?.type === 'file') {
-      if (!fileSummaries[selectedFile.id]) {
-        fetchFileSummary(selectedFile);
-      }
-    }
-  }, [selectedFile]); 
+    if (!selectedFile || selectedFile.type !== 'file') return;
 
-  const fetchFileSummary = async (file: FileNode) => {
+    const cachedContent = fileContents[selectedFile.id];
+
+    if (cachedContent !== undefined) {
+      if (!fileSummaries[selectedFile.id]) {
+        summarizeFile(selectedFile, cachedContent);
+      }
+      return;
+    }
+
+    loadFileContent(selectedFile);
+  }, [selectedFile]);
+
+  const loadFileContent = async (file: FileNode) => {
+    if (!file.path) return;
+    setIsLoadingContent(true);
+    try {
+      const response = await fetch("http://localhost:3001/file-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ repo_url: repoUrl, path: file.path }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const content = data.content ?? "";
+        setFileContents((prev) => ({ ...prev, [file.id]: content }));
+
+        if (!fileSummaries[file.id]) {
+          summarizeFile(file, content);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch file content", err);
+    } finally {
+      setIsLoadingContent(false);
+    }
+  };
+
+  const summarizeFile = async (file: FileNode, content: string) => {
     setIsSummarizing(true);
     try {
       const response = await fetch("http://localhost:3001/summarize-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ file_name: file.name, file_content: file.content }),
+        body: JSON.stringify({ file_name: file.name, file_content: content }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        // This now updates the state sitting up in the Dashboard!
         setFileSummaries((prev) => ({ ...prev, [file.id]: data.summary }));
       }
     } catch (err) {
@@ -64,6 +106,8 @@ export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: Dev
   if (!fileTree) {
     return <div className="p-8 text-gray-500">Waiting for repository files...</div>;
   }
+
+  const currentContent = selectedFile ? fileContents[selectedFile.id] : undefined;
 
   return (
     <div className="flex h-full">
@@ -93,8 +137,7 @@ export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: Dev
                   {selectedFile.name.split('.').pop()?.toUpperCase() || 'FILE'}
                 </span>
               </div>
-              
-              {/* Conditional rendering for the AI Summary */}
+
               {isSummarizing && !fileSummaries[selectedFile.id] ? (
                 <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
                   <Sparkles className="size-4" />
@@ -102,7 +145,6 @@ export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: Dev
                 </div>
               ) : (
                 <p className="text-gray-600 text-sm leading-relaxed">
-                  {/* Show our cached AI summary, or fallback to the generic placeholder */}
                   {fileSummaries[selectedFile.id] || selectedFile.summary}
                 </p>
               )}
@@ -110,9 +152,16 @@ export function DeveloperView({ fileTree, fileSummaries, setFileSummaries }: Dev
 
             {/* Code preview */}
             <div className="flex-1 overflow-auto p-6 bg-gray-50">
-              <pre className="bg-gray-900 text-gray-100 p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono">
-                <code>{selectedFile.content}</code>
-              </pre>
+              {isLoadingContent && currentContent === undefined ? (
+                <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
+                  <Sparkles className="size-4" />
+                  Loading file content...
+                </div>
+              ) : (
+                <pre className="bg-gray-900 text-gray-100 p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono">
+                  <code>{currentContent ?? ''}</code>
+                </pre>
+              )}
             </div>
           </>
         ) : (

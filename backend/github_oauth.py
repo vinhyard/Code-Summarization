@@ -33,6 +33,11 @@ OVERVIEW_ENTRYPOINT_NAMES = {
     "index.js", "index.jsx"
 }
 
+# In-memory cache of the last analyzed repos so per-file requests can
+# look up content without re-running gitingest. Keyed by repo_url.
+# Keeping this simple and bare-bones as requested.
+REPO_FILE_CACHE = {}
+
 # Pydantic Schema
 class TechItem(BaseModel):
     name: str
@@ -357,31 +362,33 @@ def get_github_username():
     else:
         return jsonify({"Error": "Failed to fetch username"}), response.status_code
 def build_file_tree(gitingest_content: str):
-    # Split the content by the gitingest file separator
+    """
+        Metadata-only tree used in the initial /analyze response.
+        File nodes intentionally do not include `content` so the
+        payload stays small. Content is fetched per-file on demand
+        via /file-content.
+    """
     parts = re.split(r'={10,}\nFILE: (.*?)\n={10,}\n', gitingest_content)
-    
+
     root_children = {}
 
     # parts[0] is the tree preamble. Actual files start at index 1.
     for i in range(1, len(parts), 2):
         filepath = parts[i].strip()
-        filecontent = parts[i+1].strip()
-        
+
         path_parts = filepath.split('/')
         current_level = root_children
 
         for j, part in enumerate(path_parts):
             if j == len(path_parts) - 1:
-                # We've reached the actual file
                 current_level[part] = {
                     "id": filepath.replace('/', '-'),
                     "name": part,
+                    "path": filepath,
                     "type": "file",
-                    "content": filecontent,
-                    "summary": f"Source file: {filepath}" # Placeholder summary
+                    "summary": f"Source file: {filepath}"
                 }
             else:
-                # We're building the folder structure
                 if part not in current_level:
                     current_level[part] = {
                         "id": "-".join(path_parts[:j+1]),
@@ -391,7 +398,6 @@ def build_file_tree(gitingest_content: str):
                     }
                 current_level = current_level[part]["children"]
 
-    # Helper to convert the nested dictionaries into lists for React
     def dict_to_list(node_dict):
         result = []
         for key, val in node_dict.items():
@@ -402,6 +408,17 @@ def build_file_tree(gitingest_content: str):
         result.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
         return result
     return dict_to_list(root_children)
+
+
+def cache_repo_files(repo_url: str, gitingest_content: str):
+    """
+        Parses the gitingest output once and caches a path -> content
+        map so per-file endpoints can answer without re-ingesting.
+    """
+    parsed_files = parse_gitingest_files(gitingest_content)
+    file_map = {file_info["path"]: file_info["content"] for file_info in parsed_files}
+    REPO_FILE_CACHE[repo_url] = file_map
+    return file_map
 @app.route('/analyze', methods=['POST'])
 
 # Updated analyze to use the new overview context, should be faster.
@@ -415,10 +432,40 @@ def analyze_repo():
     if not repo_url:
         return jsonify({"error": "Repository URL is missing"}), 400
     summary, content = get_gitIngest_data(repo_url)
+    cache_repo_files(repo_url, content)
     overview_context = build_overview_context(summary, content)
     overview_data = processOverview(summary, overview_context, full_content=content)
     overview_data['fileTree'] = build_file_tree(content)
+    overview_data['repoUrl'] = repo_url
     return jsonify(overview_data)
+
+
+@app.route('/file-content', methods=['POST'])
+def get_file_content():
+    """
+        Returns the content for a single file from the cached
+        gitingest parse. Expects {repo_url, path} in the body.
+    """
+    token = session.get('github_token')
+    if not token:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json() or {}
+    repo_url = data.get('repo_url')
+    file_path = data.get('path')
+
+    if not repo_url or not file_path:
+        return jsonify({"error": "Missing repo_url or path"}), 400
+
+    file_map = REPO_FILE_CACHE.get(repo_url)
+    if file_map is None:
+        return jsonify({"error": "Repository not analyzed yet"}), 404
+
+    file_content = file_map.get(file_path)
+    if file_content is None:
+        return jsonify({"error": "File not found"}), 404
+
+    return jsonify({"path": file_path, "content": file_content})
 
 def get_gitIngest_data(repo_url):
     token = session.get('github_token')
