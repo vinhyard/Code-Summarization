@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FileExplorer, FileNode } from './file-explorer';
-import { Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react'; // Let's add a cool AI sparkle icon
 
 interface DeveloperViewProps {
   repoUrl: string;
@@ -138,6 +138,7 @@ export function DeveloperView({
                 </span>
               </div>
 
+              {/* Conditional rendering for the AI Summary */}
               {isSummarizing && !fileSummaries[selectedFile.id] ? (
                 <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
                   <Sparkles className="size-4" />
@@ -145,6 +146,7 @@ export function DeveloperView({
                 </div>
               ) : (
                 <p className="text-gray-600 text-sm leading-relaxed">
+                  {/* Show our cached AI summary, or fallback to the generic placeholder */}
                   {fileSummaries[selectedFile.id] || selectedFile.summary}
                 </p>
               )}

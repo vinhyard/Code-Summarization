@@ -33,9 +33,9 @@ OVERVIEW_ENTRYPOINT_NAMES = {
     "index.js", "index.jsx"
 }
 
-# In-memory cache of the last analyzed repos so per-file requests can
-# look up content without re-running gitingest. Keyed by repo_url.
-# Keeping this simple and bare-bones as requested.
+# This will hold our loaded repo content, that we we don't have to re-fetch it everytime
+# this should also improve loadtimes since you can pre-run it and when you return to it it should
+# just fetch from cache instead re-doing it everytime.
 REPO_FILE_CACHE = {}
 
 # Pydantic Schema
@@ -363,10 +363,9 @@ def get_github_username():
         return jsonify({"Error": "Failed to fetch username"}), response.status_code
 def build_file_tree(gitingest_content: str):
     """
-        Metadata-only tree used in the initial /analyze response.
-        File nodes intentionally do not include `content` so the
-        payload stays small. Content is fetched per-file on demand
-        via /file-content.
+        Reworked this to focus on only fetching and building the file tree
+        and ignoring the content since content is fetched per-file on demand
+        now.
     """
     parts = re.split(r'={10,}\nFILE: (.*?)\n={10,}\n', gitingest_content)
 
@@ -381,6 +380,7 @@ def build_file_tree(gitingest_content: str):
 
         for j, part in enumerate(path_parts):
             if j == len(path_parts) - 1:
+                # Reworked this to not include the content
                 current_level[part] = {
                     "id": filepath.replace('/', '-'),
                     "name": part,
@@ -398,6 +398,7 @@ def build_file_tree(gitingest_content: str):
                     }
                 current_level = current_level[part]["children"]
 
+    # Helper to convert the nested dictionaries into lists for React
     def dict_to_list(node_dict):
         result = []
         for key, val in node_dict.items():
@@ -409,11 +410,9 @@ def build_file_tree(gitingest_content: str):
         return result
     return dict_to_list(root_children)
 
-
 def cache_repo_files(repo_url: str, gitingest_content: str):
     """
-        Parses the gitingest output once and caches a path -> content
-        map so per-file endpoints can answer without re-ingesting.
+        Parses the gitingest output pops it into our cache for lookup later
     """
     parsed_files = parse_gitingest_files(gitingest_content)
     file_map = {file_info["path"]: file_info["content"] for file_info in parsed_files}
@@ -444,7 +443,7 @@ def analyze_repo():
 def get_file_content():
     """
         Returns the content for a single file from the cached
-        gitingest parse. Expects {repo_url, path} in the body.
+        gitingest parse. It expects {repo_url, path} in the body.
     """
     token = session.get('github_token')
     if not token:
