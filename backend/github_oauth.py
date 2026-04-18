@@ -130,7 +130,15 @@ def get_github_repos():
     else:
         return jsonify({"Error": "Failed to fetch repositories"}), response.status_code
 
+
 def parse_gitingest_files(gitingest_content: str):
+    """
+        This parses the gitingest content into a list of files, 
+        this way we can select/utilize specific files instead of the entire content.
+    """
+
+    # Split by new new line and content i.e we get the title then its contents
+    # i used example gitinject files for this, might need a better regex
     parts = re.split(r'={10,}\nFILE: (.*?)\n={10,}\n', gitingest_content)
     files = []
 
@@ -143,6 +151,11 @@ def parse_gitingest_files(gitingest_content: str):
 
 
 def score_overview_file(filepath: str):
+    """
+        This will score the files based on the name, I have a
+        priority list above, we can use to decide what files to
+        prioritize for the overview.
+    """
     normalized_path = filepath.lower()
     filename = os.path.basename(normalized_path)
     score = 0
@@ -162,18 +175,30 @@ def score_overview_file(filepath: str):
 
 
 def extract_overview_snippet(filecontent: str, max_lines=20, max_chars=1200):
+    """
+        This will extract the overview snippet from the file,
+        we can use this to get the most important lines of the file, 
+        basically reducing the bigger files into just important sections
+        enough that the llm should be able to pull context itself.
+    """
     important_lines = []
     fallback_lines = []
 
     for line in filecontent.splitlines():
+        #remove whitespace
         stripped = line.strip()
         if not stripped:
             continue
 
+        #shorten the line to a max of 180 characters
         shortened = stripped[:180]
+        #check if we're past the max lines, if not add it to fallback lines
         if len(fallback_lines) < max_lines:
             fallback_lines.append(shortened)
 
+        # checks the line for keywords, things like if its a class identifier, 
+        # function etc, since we can usually derive the function use from
+        # the name we mark these as important lines.
         if stripped.startswith((
             '#', '//', '/*', '*', 'import ', 'from ', 'export ',
             'class ', 'def ', 'function ', 'interface ', 'type ',
@@ -181,14 +206,22 @@ def extract_overview_snippet(filecontent: str, max_lines=20, max_chars=1200):
         )):
             important_lines.append(shortened)
 
+        #if we've hit the max lines, break
         if len(important_lines) >= max_lines:
             break
 
+    # if we have less than 4 important lines, use the fallback lines
+    # this is to ensure we have enough lines to make a good overview
+    # and keep in mind the fall-back lines already include the important ones.
     selected_lines = important_lines if len(important_lines) >= 4 else fallback_lines
     return "\n".join(selected_lines)[:max_chars]
 
-
 def build_tree_outline(filepaths, max_items=12):
+    """
+        This will build the tree outline for the files,
+        I'm using this prmarily to just build a loose file tree
+        for the overview, not to represent the actual full file tree
+    """
     outline = []
     seen_roots = set()
 
@@ -204,17 +237,29 @@ def build_tree_outline(filepaths, max_items=12):
 
 
 def build_overview_context(summary, content, max_files=8, max_chars=18000):
+    """
+        Finally This will builds the overview context for the repository,
+        that way we can pass this to the llm to generate the overview.
+        with a max character limit of 18000 rn, but modify as needed.
+        (Didn't know if ollama has a max limit i should be using as ref here)
+    """
     parsed_files = parse_gitingest_files(content)
     if not parsed_files:
         return content[:max_chars]
 
+    # Create a new sorted list
+    # The lambda here is the sorting function, in short it's saying
+    # For each file get the overview score, and then take points away for longer lengths
+    # so its sorted by score and then by shorter paths first
     ranked_files = sorted(
         parsed_files,
         key=lambda file_info: (score_overview_file(file_info["path"]), -len(file_info["path"])),
         reverse=True
     )
 
+    # Get the filepaths that we use to build the tree
     filepaths = [file_info["path"] for file_info in parsed_files]
+    # Build the context sections, we have the summary, tree outline, and critical file snippets
     context_sections = [
         "Repository Summary:",
         summary.strip(),
@@ -225,28 +270,37 @@ def build_overview_context(summary, content, max_files=8, max_chars=18000):
         "Critical File Snippets:"
     ]
 
+    # Track the size of the current context
     current_length = len("\n".join(context_sections))
     selected_count = 0
 
+
     for file_info in ranked_files:
+        # Break if we're going pas the context limit/max files
         if selected_count >= max_files or current_length >= max_chars:
             break
-
+        
+        # Extract information relevant to the overfiew 
         snippet = extract_overview_snippet(file_info["content"])
         if not snippet:
             continue
 
+        # Build the block we'll place into the context
+        # This is pretty much the file header and then the snippet
         file_block = f"\nFILE: {file_info['path']}\n{snippet}\n"
+
+        #Checks if that will past our context limit, and breaks if so
         if current_length + len(file_block) > max_chars:
             break
 
+        # Add the block to the context section etc etc, you get the idea.
         context_sections.append(file_block)
         current_length += len(file_block)
         selected_count += 1
 
     return "\n".join(context_sections)
 
-
+# I've modified the old processOverview to use the new built context
 def processOverview(summary, overview_context, full_content=None):
     # Calculate lines of code
     metric_source = full_content if full_content is not None else overview_context
@@ -349,6 +403,8 @@ def build_file_tree(gitingest_content: str):
         return result
     return dict_to_list(root_children)
 @app.route('/analyze', methods=['POST'])
+
+# Updated analyze to use the new overview context, should be faster.
 def analyze_repo():
     # Implementation for analyzing repositories
     token = session.get('github_token')
