@@ -20,6 +20,19 @@ AUTHORIZATION_BASE_URL = 'https://github.com/login/oauth/authorize'
 TOKEN_URL = 'https://github.com/login/oauth/access_token'
 USER_API_URL = 'https://api.github.com/user'
 
+OVERVIEW_PRIORITY_FILES = {
+    "readme", "readme.md", "package.json", "requirements.txt", "pyproject.toml",
+    "go.mod", "cargo.toml", "pom.xml", "build.gradle", "docker-compose.yml",
+    "dockerfile", ".env.example", "tsconfig.json", "vite.config.ts", "vite.config.js"
+}
+
+OVERVIEW_ENTRYPOINT_NAMES = {
+    "main.py", "main.ts", "main.tsx", "main.js", "main.jsx",
+    "app.py", "app.ts", "app.tsx", "app.js", "app.jsx",
+    "server.py", "server.ts", "server.js", "index.ts", "index.tsx",
+    "index.js", "index.jsx"
+}
+
 # Pydantic Schema
 class TechItem(BaseModel):
     name: str
@@ -116,13 +129,131 @@ def get_github_repos():
         return jsonify(clean_repos)
     else:
         return jsonify({"Error": "Failed to fetch repositories"}), response.status_code
-def processOverview(summary, content):
+
+def parse_gitingest_files(gitingest_content: str):
+    parts = re.split(r'={10,}\nFILE: (.*?)\n={10,}\n', gitingest_content)
+    files = []
+
+    for i in range(1, len(parts), 2):
+        filepath = parts[i].strip()
+        filecontent = parts[i + 1].strip()
+        files.append({"path": filepath, "content": filecontent})
+
+    return files
+
+
+def score_overview_file(filepath: str):
+    normalized_path = filepath.lower()
+    filename = os.path.basename(normalized_path)
+    score = 0
+
+    if filename in OVERVIEW_PRIORITY_FILES:
+        score += 100
+    if filename in OVERVIEW_ENTRYPOINT_NAMES:
+        score += 80
+    if normalized_path.count('/') == 0:
+        score += 25
+    if any(token in normalized_path for token in ('/config/', '/routes/', '/route/', '/api/', '/controller/', '/service/')):
+        score += 20
+    if any(test_token in normalized_path for test_token in ('/tests/', '/test/', '.spec.', '.test.')):
+        score -= 40
+
+    return score
+
+
+def extract_overview_snippet(filecontent: str, max_lines=20, max_chars=1200):
+    important_lines = []
+    fallback_lines = []
+
+    for line in filecontent.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        shortened = stripped[:180]
+        if len(fallback_lines) < max_lines:
+            fallback_lines.append(shortened)
+
+        if stripped.startswith((
+            '#', '//', '/*', '*', 'import ', 'from ', 'export ',
+            'class ', 'def ', 'function ', 'interface ', 'type ',
+            'enum ', 'package ', 'module ', '@'
+        )):
+            important_lines.append(shortened)
+
+        if len(important_lines) >= max_lines:
+            break
+
+    selected_lines = important_lines if len(important_lines) >= 4 else fallback_lines
+    return "\n".join(selected_lines)[:max_chars]
+
+
+def build_tree_outline(filepaths, max_items=12):
+    outline = []
+    seen_roots = set()
+
+    for filepath in filepaths:
+        root = filepath.split('/')[0]
+        if root not in seen_roots:
+            seen_roots.add(root)
+            outline.append(root)
+        if len(outline) >= max_items:
+            break
+
+    return "\n".join(f"- {item}" for item in outline)
+
+
+def build_overview_context(summary, content, max_files=8, max_chars=18000):
+    parsed_files = parse_gitingest_files(content)
+    if not parsed_files:
+        return content[:max_chars]
+
+    ranked_files = sorted(
+        parsed_files,
+        key=lambda file_info: (score_overview_file(file_info["path"]), -len(file_info["path"])),
+        reverse=True
+    )
+
+    filepaths = [file_info["path"] for file_info in parsed_files]
+    context_sections = [
+        "Repository Summary:",
+        summary.strip(),
+        "",
+        "Top-Level Structure:",
+        build_tree_outline(filepaths),
+        "",
+        "Critical File Snippets:"
+    ]
+
+    current_length = len("\n".join(context_sections))
+    selected_count = 0
+
+    for file_info in ranked_files:
+        if selected_count >= max_files or current_length >= max_chars:
+            break
+
+        snippet = extract_overview_snippet(file_info["content"])
+        if not snippet:
+            continue
+
+        file_block = f"\nFILE: {file_info['path']}\n{snippet}\n"
+        if current_length + len(file_block) > max_chars:
+            break
+
+        context_sections.append(file_block)
+        current_length += len(file_block)
+        selected_count += 1
+
+    return "\n".join(context_sections)
+
+
+def processOverview(summary, overview_context, full_content=None):
     # Calculate lines of code
-    all_lines = content.split("\n")
+    metric_source = full_content if full_content is not None else overview_context
+    all_lines = metric_source.split("\n")
     lines_of_code = len([line for line in all_lines if line.strip()])
     files_analyzed = summary.split('Files analyzed: ')[-1].split("\n")[0] if "Files analyzed:" in summary else "N/A"
-    safe_content = content[:30000]
-    context = f"File Contents:\n{safe_content}"
+    context = f"Repository Overview Context:\n{overview_context[:30000]}"
     print("Analyzing with Ollama")
     schema = OverviewData.model_json_schema()
     prompt = f"""
@@ -228,7 +359,8 @@ def analyze_repo():
     if not repo_url:
         return jsonify({"error": "Repository URL is missing"}), 400
     summary, content = get_gitIngest_data(repo_url)
-    overview_data = processOverview(summary, content)
+    overview_context = build_overview_context(summary, content)
+    overview_data = processOverview(summary, overview_context, full_content=content)
     overview_data['fileTree'] = build_file_tree(content)
     return jsonify(overview_data)
 
