@@ -548,18 +548,26 @@ def summarize_file():
         File Content:
         {safe_content}
         """
-        response = ollama.chat(
-            model='llama3.1',
-            messages=[{"role": "user", "content": prompt}],
-            options={
-                'temperature': 0.2,
-                'num_predict': 1000
-            }
-        )
-        summary = response['message']['content'].strip()
+        summary = ""
+        for attempt in range(3):
+            response = ollama.chat(
+                model='llama3.1',
+                messages=[{"role": "user", "content": prompt}],
+                options={
+                    'temperature': 0.2,
+                    'num_predict': 1000
+                }
+            )
+            summary = response['message']['content'].strip()
+            if summary:
+                break
+
+        if not summary:
+            return jsonify({"error": "Failed to generate summary"}), 500
+
         return jsonify({"summary": summary})
     except Exception as e:
-        return jsonify({"error": "Failed to generate summary"})
+        return jsonify({"error": "Failed to generate summary"}), 500
 @app.route('/generate-architecture', methods=['POST'])
 def generate_architecture():
     token = session.get('github_token')
