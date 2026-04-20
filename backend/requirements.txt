@@ -1,0 +1,7 @@
+Flask
+requests-oauthlib
+requests
+Flask-CORS
+gitingest
+ollama
+pydantic

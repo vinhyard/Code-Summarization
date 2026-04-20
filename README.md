@@ -1,2 +1,1 @@
-# Code-Summarization
-Senior Capstone Project
+CAPSTONE PROJECT
