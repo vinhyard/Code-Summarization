@@ -67,7 +67,7 @@ export function OverviewTab({ analysisData }: OverviewTabProps) {
 
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-4">
-        {metrics.map(({ label, value, color, bg }) => {
+        {(metrics || []).map(({ label, value, color, bg }) => {
           // Grab the correct icon from our map, or fallback to a default
           const Icon = ICON_MAP[label] || FileCode2; 
           
@@ -88,7 +88,7 @@ export function OverviewTab({ analysisData }: OverviewTabProps) {
         <h3 className="text-lg mb-4">Tech Stack</h3>
         <Tooltip.Provider delayDuration={150}>
           <div className="flex flex-wrap gap-2">
-            {tech_stack.map((tech) => (
+            {(tech_stack || []).map((tech) => (
               <Tooltip.Root key={tech.name}>
                 <Tooltip.Trigger asChild>
                   <button className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full hover:border-blue-400 hover:bg-blue-50 transition-colors">
@@ -130,7 +130,7 @@ export function OverviewTab({ analysisData }: OverviewTabProps) {
           Key Insights
         </h3>
         <ul className="space-y-2">
-          {insights.map((insight, i) => (
+          {(insights || []).map((insight, i) => (
             <li key={i} className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-100 rounded-lg text-sm text-gray-700">
               <span className="shrink-0 size-5 flex items-center justify-center bg-amber-200 text-amber-800 rounded-full text-xs font-semibold mt-0.5">
                 {i + 1}

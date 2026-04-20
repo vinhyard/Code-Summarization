@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileExplorer, FileNode } from './file-explorer';
-import { Sparkles } from 'lucide-react'; // Let's add a cool AI sparkle icon
+import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
 interface DeveloperViewProps {
   repoUrl: string;
@@ -33,6 +34,7 @@ export function DeveloperView({
   const [selectedFile, setSelectedFile] = useState<FileNode | null>(null);
   const [isLoadingContent, setIsLoadingContent] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [isSummaryOpen, setIsSummaryOpen] = useState(true);
 
   useEffect(() => {
     if (fileTree && fileTree.length > 0 && !selectedFile) {
@@ -130,25 +132,54 @@ export function DeveloperView({
         {selectedFile && selectedFile.type === 'file' ? (
           <>
             {/* File Header & Dynamic Summary */}
-            <div className="border-b border-gray-200 p-6 bg-white shrink-0">
-              <div className="flex items-center gap-2 mb-3">
-                <h3 className="text-lg font-medium">{selectedFile.name}</h3>
-                <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded text-xs font-mono">
-                  {selectedFile.name.split('.').pop()?.toUpperCase() || 'FILE'}
-                </span>
+            <div className="border-b border-gray-200 bg-white shrink-0">
+              {/* Always-visible header row */}
+              <div
+                className="flex items-center justify-between gap-2 px-6 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => setIsSummaryOpen((prev) => !prev)}
+              >
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-medium">{selectedFile.name}</h3>
+                  <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded text-xs font-mono">
+                    {selectedFile.name.split('.').pop()?.toUpperCase() || 'FILE'}
+                  </span>
+                </div>
+                <button
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors shrink-0"
+                  title={isSummaryOpen ? 'Collapse summary' : 'Expand summary'}
+                >
+                  {isSummaryOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                  <span>{isSummaryOpen ? 'Hide' : 'Summary'}</span>
+                </button>
               </div>
 
-              {/* Conditional rendering for the AI Summary */}
-              {isSummarizing && !fileSummaries[selectedFile.id] ? (
-                <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
-                  <Sparkles className="size-4" />
-                  Generating AI summary...
+              {/* Collapsible summary body */}
+              {isSummaryOpen && (
+                <div className="px-6 pb-4 max-h-64 overflow-y-auto border-t border-gray-100">
+                  {isSummarizing && !fileSummaries[selectedFile.id] ? (
+                    <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse pt-3">
+                      <Sparkles className="size-4" />
+                      Generating AI summary...
+                    </div>
+                  ) : (
+                    <div className="text-gray-600 text-sm leading-relaxed prose prose-sm max-w-none pt-3">
+                      <ReactMarkdown
+                        components={{
+                          h1: ({ children }) => <h1 className="text-base font-semibold text-gray-900 mt-4 mb-1">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-sm font-semibold text-gray-800 mt-3 mb-1">{children}</h2>,
+                          strong: ({ children }) => <strong className="font-semibold text-gray-800">{children}</strong>,
+                          ul: ({ children }) => <ul className="list-disc list-inside space-y-0.5 my-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal list-inside space-y-0.5 my-1">{children}</ol>,
+                          li: ({ children }) => <li className="text-gray-600">{children}</li>,
+                          p: ({ children }) => <p className="mb-1">{children}</p>,
+                          code: ({ children }) => <code className="bg-gray-100 text-gray-800 px-1 rounded text-xs font-mono">{children}</code>,
+                        }}
+                      >
+                        {fileSummaries[selectedFile.id] || selectedFile.summary}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-gray-600 text-sm leading-relaxed">
-                  {/* Show our cached AI summary, or fallback to the generic placeholder */}
-                  {fileSummaries[selectedFile.id] || selectedFile.summary}
-                </p>
               )}
             </div>
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import List
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
@@ -323,19 +324,26 @@ def processOverview(summary, overview_context, full_content=None):
     {context}
 
     """
-    response = ollama.chat(
-        model='llama3.1',
-        messages=[{'role': 'user', 'content': prompt}],
-        format='json',
-        options={
-            'num_ctx': 32000
-        }
-    )
-    
-    ai_data = json.loads(response['message']['content'])
+    max_retries = 3
+    ai_data = {}
+    for attempt in range(max_retries):
+        try:
+            response = ollama.chat(
+                model='llama3.1',
+                messages=[{'role': 'user', 'content': prompt}],
+                format='json',
+                options={
+                    'num_ctx': 32000
+                }
+            )
+            ai_data = json.loads(response['message']['content'])
+            if ai_data and ai_data.get("tech_stack") and ai_data.get("insights"):
+                break
+        except Exception:
+            pass
 
-    dependency_count = len(ai_data.get("dependencies_list", []))
-    service_count = len(ai_data.get("services_list", []))
+    dependency_count = len(ai_data.get("dependencies_list") or [])
+    service_count = len(ai_data.get("services_list") or [])
     metrics = [
         {"label": "Files Analyzed", "value": files_analyzed, "color": "text-blue-600", "bg": "bg-blue-50"},
         {"label": "Lines of Code", "value": f"{lines_of_code:,}", "color": "text-green-600", "bg": "bg-green-50"},
@@ -343,9 +351,9 @@ def processOverview(summary, overview_context, full_content=None):
         {"label": "Services", "value": str(service_count), "color": "text-purple-600", "bg": "bg-purple-50"}
     ]
     return {
-        "summary": ai_data.get("summary", "No summary generated"),
-        "tech_stack": ai_data.get("tech_stack", []),
-        "insights": ai_data.get("insights", []),
+        "summary": ai_data.get("summary") or "No summary generated",
+        "tech_stack": ai_data.get("tech_stack") or [],
+        "insights": ai_data.get("insights") or [],
         "metrics": metrics
     }
 @app.route('/username')
@@ -422,7 +430,6 @@ def cache_repo_files(repo_url: str, gitingest_content: str):
 
 # Updated analyze to use the new overview context, should be faster.
 def analyze_repo():
-    # Implementation for analyzing repositories
     token = session.get('github_token')
     if not token:
         return jsonify({"error": "Unauthorized"}), 401
@@ -430,11 +437,27 @@ def analyze_repo():
     repo_url = data.get('repo_url')
     if not repo_url:
         return jsonify({"error": "Repository URL is missing"}), 400
+
+    # Step 1: Fetch repo content (must be sequential - everything depends on this)
     summary, content = get_gitIngest_data(repo_url)
-    cache_repo_files(repo_url, content)
-    overview_context = build_overview_context(summary, content)
+
+    # Step 2: Run independent tasks in parallel:
+    #   - cache_repo_files: parses and stores files in memory
+    #   - build_file_tree:  builds the sidebar tree for the frontend
+    #   - build_overview_context: scores/ranks files and builds the LLM prompt context
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        future_cache   = executor.submit(cache_repo_files, repo_url, content)
+        future_tree    = executor.submit(build_file_tree, content)
+        future_context = executor.submit(build_overview_context, summary, content)
+
+    file_tree        = future_tree.result()
+    overview_context = future_context.result()
+    # cache result not needed directly but ensures it's done before returning
+    future_cache.result()
+
+    # Step 3: LLM call — depends on overview_context from step 2
     overview_data = processOverview(summary, overview_context, full_content=content)
-    overview_data['fileTree'] = build_file_tree(content)
+    overview_data['fileTree'] = file_tree
     overview_data['repoUrl'] = repo_url
     return jsonify(overview_data)
 
@@ -471,10 +494,30 @@ def get_gitIngest_data(repo_url):
     # Implementation for fetching Git Ingest data
     
     exclude_patterns = [
-        "tests/", "test_*", "*_test.py", "*.spec.ts", 
-        "docs/", "assets/", "public/", "images/",    
-        "*.lock", "package-lock.json", "*.csv",       
-        "migrations/", "vendor/"                     
+        # Dependencies (the biggest offenders)
+        "node_modules/", "vendor/", ".venv/", "venv/", "__pycache__/",
+
+        # Build & dist artifacts
+        "dist/", "build/", ".next/", ".nuxt/", "out/", ".output/",
+        ".turbo/", ".parcel-cache/", "coverage/", ".nyc_output/",
+
+        # Tests (not needed for overview)
+        "tests/", "test/", "test_*", "*_test.py", "*.spec.ts", "*.spec.js", "*.test.ts", "*.test.js",
+
+        # Docs & static assets
+        "docs/", "assets/", "public/", "images/", "static/", "media/",
+
+        # Lock files & generated files
+        "*.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+        "*.csv", "*.svg", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.ico", "*.webp",
+        "*.min.js", "*.min.css", "*.map",
+
+        # DB & migrations
+        "migrations/", "*.sql",
+
+        # Config & cache
+        ".cache/", ".git/", ".idea/", ".vscode/",
+        "*.log", "*.tmp",
     ]
     summary, tree, content = ingest(
         repo_url, token=token['access_token'], exclude_patterns=exclude_patterns, max_file_size=50000
@@ -497,8 +540,10 @@ def summarize_file():
     try:
         safe_content = file_content[:20000]
         prompt = f"""
-        You are a senior software architect. Read the following source code file named '{file_name}' and explain its purpose in the repository.
-        CRITICAL INSTRUCTION: You MUST respond in exactly 1 or 2 clear, concise sentences. DO NOT use markdown, bolding, or pleasantries. Just the summary. Do not make modification suggestions, only generate a summary of the code.
+        You are a senior software architect. Provide an extremely detailed and comprehensive summary of the following source code file named '{file_name}'.
+        Explain its primary purpose, core logic, key functions, classes, and how it fits into the overall repository architecture.
+        Highlight any important design patterns or specific technical details you find.
+        DO NOT use pleasantries. Focus only on the technical analysis and descriptive summary.
         
         File Content:
         {safe_content}
@@ -508,7 +553,7 @@ def summarize_file():
             messages=[{"role": "user", "content": prompt}],
             options={
                 'temperature': 0.2,
-                'num_predict': 150
+                'num_predict': 1000
             }
         )
         summary = response['message']['content'].strip()
@@ -604,17 +649,24 @@ def generate_enduser():
     """
 
     try:
-        response = ollama.chat(
-            model='llama3.1',
-            messages=[{"role": "user", "content": prompt}],
-            format='json',
-            options={'temperature': 0.2, 'num_predict': 1000}
-        )
-        
-        # Parse the string into a python dictionary
-        ai_data = json.loads(response['message']['content'])
-        
-        
+        max_retries = 3
+        ai_data = {}
+        for attempt in range(max_retries):
+            try:
+                response = ollama.chat(
+                    model='llama3.1',
+                    messages=[{"role": "user", "content": prompt}],
+                    format='json',
+                    options={'temperature': 0.2, 'num_predict': 1000}
+                )
+                
+                # Parse the string into a python dictionary
+                ai_data = json.loads(response['message']['content'])
+                if ai_data and ai_data.get("personas") and ai_data.get("flows"):
+                    break
+            except Exception:
+                pass
+                
         return jsonify(ai_data)
     
     except Exception as e:

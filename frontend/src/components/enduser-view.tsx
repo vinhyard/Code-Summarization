@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { ArrowRight, ShieldCheck, Users, ShoppingCart, AlertCircle, Sparkles, Server } from 'lucide-react';
+import { ArrowRight, AlertCircle, Sparkles, Server } from 'lucide-react';
 
 interface EndUserViewProps {
   analysisData?: any;
@@ -75,7 +75,7 @@ export function EndUserView({ analysisData, endUserData, setEndUserData }: EndUs
       <section>
         <h3 className="text-lg mb-4">Who Uses This API</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {personas.map((p: any) => (
+          {(personas || []).map((p: any) => (
             <div key={p.role} className="border border-gray-200 rounded-lg p-4 bg-white">
               <div className="flex items-center justify-between mb-2">
                 <span className="font-medium text-sm">{p.role}</span>
@@ -91,7 +91,7 @@ export function EndUserView({ analysisData, endUserData, setEndUserData }: EndUs
       <section>
         <h3 className="text-lg mb-4">Key User Flows</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {flows.map((flow: any) => {
+          {(flows || []).map((flow: any) => {
             const bg: Record<string, string> = { blue: 'bg-blue-50 border-blue-100', green: 'bg-green-50 border-green-100', purple: 'bg-purple-50 border-purple-100' };
             const ic: Record<string, string> = { blue: 'text-blue-600', green: 'text-green-600', purple: 'text-purple-600' };
             const safeColor = bg[flow.color] ? flow.color : 'blue'; // Fallback if AI hallucinates color
@@ -103,7 +103,7 @@ export function EndUserView({ analysisData, endUserData, setEndUserData }: EndUs
                   <span className="font-medium text-sm">{flow.title}</span>
                 </div>
                 <ol className="space-y-2">
-                  {flow.steps.map((step: string, i: number) => (
+                  {(flow.steps || []).map((step: string, i: number) => (
                     <li key={i} className="flex items-start gap-2 text-xs text-gray-600">
                       <ArrowRight className="size-3 mt-0.5 shrink-0 text-gray-400" />
                       <span>{step}</span>
@@ -130,7 +130,7 @@ export function EndUserView({ analysisData, endUserData, setEndUserData }: EndUs
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {endpoints.map((ep: any) => (
+              {(endpoints || []).map((ep: any) => (
                 <tr key={ep.path} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${METHOD_COLOR[ep.method] || 'bg-gray-100'}`}>{ep.method}</span>
@@ -154,7 +154,7 @@ export function EndUserView({ analysisData, endUserData, setEndUserData }: EndUs
       <section>
         <h3 className="text-lg mb-4">Common Errors</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {errors.map((e: any) => (
+          {(errors || []).map((e: any) => (
             <div key={e.code} className="flex gap-3 border border-gray-200 rounded-lg p-4 bg-white">
               <AlertCircle className="size-4 text-red-400 shrink-0 mt-0.5" />
               <div>
