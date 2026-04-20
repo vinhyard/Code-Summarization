@@ -2,6 +2,24 @@ import { useState, useEffect } from 'react';
 import { FileExplorer, FileNode } from './file-explorer';
 import { Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+// Maps file extensions to Prism language identifiers
+const EXT_TO_LANG: Record<string, string> = {
+  ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+  py: 'python', rs: 'rust', go: 'go', java: 'java',
+  c: 'c', cpp: 'cpp', cs: 'csharp', rb: 'ruby',
+  php: 'php', swift: 'swift', kt: 'kotlin', sh: 'bash',
+  yaml: 'yaml', yml: 'yaml', json: 'json', toml: 'toml',
+  md: 'markdown', html: 'html', css: 'css', scss: 'scss',
+  sql: 'sql', dockerfile: 'dockerfile',
+};
+
+function getLanguage(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return EXT_TO_LANG[ext] ?? 'text';
+}
 
 interface DeveloperViewProps {
   repoUrl: string;
@@ -184,16 +202,30 @@ export function DeveloperView({
             </div>
 
             {/* Code preview */}
-            <div className="flex-1 overflow-auto p-6 bg-gray-50">
+            <div className="flex-1 overflow-auto bg-[#1e1e1e]">
               {isLoadingContent && currentContent === undefined ? (
-                <div className="flex items-center gap-2 text-blue-600 text-sm animate-pulse">
+                <div className="flex items-center gap-2 text-blue-400 text-sm animate-pulse p-6">
                   <Sparkles className="size-4" />
                   Loading file content...
                 </div>
               ) : (
-                <pre className="bg-gray-900 text-gray-100 p-6 rounded-lg overflow-x-auto text-sm leading-relaxed font-mono">
-                  <code>{currentContent ?? ''}</code>
-                </pre>
+                <SyntaxHighlighter
+                  language={getLanguage(selectedFile.name)}
+                  style={vscDarkPlus}
+                  showLineNumbers
+                  wrapLongLines={false}
+                  customStyle={{
+                    margin: 0,
+                    borderRadius: 0,
+                    fontSize: '0.8rem',
+                    lineHeight: '1.6',
+                    height: '100%',
+                    background: '#1e1e1e',
+                  }}
+                  lineNumberStyle={{ color: '#555', minWidth: '2.5em' }}
+                >
+                  {currentContent ?? ''}
+                </SyntaxHighlighter>
               )}
             </div>
           </>
