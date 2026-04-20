@@ -13,6 +13,10 @@ interface Repo {
 interface LoginScreenProps {
   onConnect: (repos: Repo[], username: string) => void;
   externalAuthSuccess: boolean;
+  repos: Repo[];
+  isLoadingRepos: boolean;
+  username: string;
+  fetchRepos: () => void;
 }
 
 const LANG_COLORS: Record<string, string> = {
@@ -24,47 +28,17 @@ const LANG_COLORS: Record<string, string> = {
 const DEFAULT_LANG_COLOR = 'bg-gray-100 text-gray-700 border border-gray-200';
 
 
-export function LoginScreen({ onConnect, externalAuthSuccess }: LoginScreenProps) {
+export function LoginScreen({ onConnect, externalAuthSuccess, repos, isLoadingRepos, username, fetchRepos }: LoginScreenProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(externalAuthSuccess);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
-  // State to hold Github repos
-  const [repos, setRepos] = useState<Repo[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [username, setUsername] = useState<string>("");
+
   // Update authentication state if App detects successful auth
   useEffect(() => {
     if (externalAuthSuccess) {
       setIsAuthenticated(true)
-      fetchRepos();
+      // fetchRepos is now called in App.tsx via useEffect when auth succeeds
     }
   }, [externalAuthSuccess]);
-  const fetchRepos = async () => {
-    setIsLoading(true);
-    try {
-      // Get username
-      const userResponse = await fetch('http://localhost:3001/username', {
-        credentials: 'include' 
-      });
-      if (userResponse.ok) {
-        const userData = await userResponse.json();
-        setUsername(userData.username);
-      }
-      const response = await fetch('http://localhost:3001/repos', {
-        credentials: 'include' // Include cookies for session
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setRepos(data);
-      } else {
-        console.error('Failed to fetch repositories');
-      }
-    } catch (error) {
-      console.error('Error fetching repositories:', error);
-    } finally {
-      setIsLoading(false);
-
-    }
-  };
   // Redirect to Github login backend endpoint
   const handleGithubClick = () => {
     window.location.href = "http://localhost:3001/login";
@@ -113,8 +87,8 @@ export function LoginScreen({ onConnect, externalAuthSuccess }: LoginScreenProps
             <div>
               <h2 className="text-xl mb-1">Select a repository to analyze</h2>
               <p className="text-gray-500 text-sm mb-4">Connected as <span className="text-gray-900 font-medium">@{username || "Loading..."}</span></p>
-              {isLoading ? (
-                <div className="text-center py-8 text-gray-500">Loading respositories...</div>
+              {isLoadingRepos ? (
+                <div className="text-center py-8 text-gray-500">Loading repositories...</div>
               ) : 
               (<div className="space-y-2">
                 {repos.map((repo) => (
