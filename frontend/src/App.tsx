@@ -10,6 +10,8 @@ interface Repo {
   name: string;
   description: string;
   language: string;
+  stars: string;
+  lastActive: string;
 }
 
 export default function App() {
@@ -17,21 +19,60 @@ export default function App() {
   const [selectedRepos, setSelectedRepos] = useState<Repo[]>([]);
   const [isExternalAuth, setisExternalAuth] = useState(false);
   const [username, setUsername] = useState<string>("");
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
+
+  const fetchRepos = async () => {
+    setIsLoadingRepos(true);
+    try {
+      // Get username
+      const userResponse = await fetch('http://localhost:3001/username', {
+        credentials: 'include' 
+      });
+      if (userResponse.ok) {
+        const userData = await userResponse.json();
+        setUsername(userData.username);
+      }
+      const response = await fetch('http://localhost:3001/repos', {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRepos(data);
+      }
+    } catch (error) {
+      console.error('Error fetching repositories:', error);
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  };
+
   // Check for redirect from Flask
   useEffect(() => {
-    // On app load, check if we were redirected back from Github auth
     const params = new URLSearchParams(window.location.search);
     if (params.get('auth') === 'success') {
       setisExternalAuth(true);
-      //Clean the URL so a refresh doesn't trigger this again
       window.history.replaceState({}, document.title, '/');
+      fetchRepos();
     }
-    
   }, []);
-  const handleConnect = (repos: Repo[], githubUsername: string) => {
-    setSelectedRepos(repos);
+
+  const handleConnect = (reposToConnect: Repo[], githubUsername: string) => {
+    setSelectedRepos(reposToConnect);
     setUsername(githubUsername);
+    setAnalysisData(null); // Clear previous analysis
+    setAppState('loading');
+  };
+
+  const handleReanalyze = () => {
+    setAnalysisData(null);
+    setAppState('loading');
+  };
+
+  const handleSwitchRepo = (repo: Repo) => {
+    setSelectedRepos([repo]);
+    setAnalysisData(null);
     setAppState('loading');
   };
 
@@ -58,6 +99,9 @@ useEffect(() => {
             // Parse the data from the LLM and Git Ingest
             const data = await response.json();
             
+            // DEBUG: Log the raw response to inspect what the LLM returned
+            console.log('[DEBUG] /analyze response:', JSON.stringify(data, null, 2));
+            
             // Save the data to state and move to the Dashboard
             setAnalysisData(data);
             setAppState('dashboard');
@@ -76,17 +120,30 @@ useEffect(() => {
   }, [appState, selectedRepos, username]);
 
   if (appState === 'login') {
-    return <LoginScreen onConnect={handleConnect} externalAuthSuccess={isExternalAuth} />;
+    return (
+      <LoginScreen 
+        onConnect={handleConnect} 
+        externalAuthSuccess={isExternalAuth}
+        repos={repos}
+        isLoadingRepos={isLoadingRepos}
+        username={username}
+        fetchRepos={fetchRepos}
+      />
+    );
   }
 
   if (appState === 'loading') {
     return <LoadingScreen projectName={selectedRepos[0]?.name || 'Project'} />;
   } 
+
   return (
     <Dashboard
       projectName={selectedRepos[0]?.name || 'Project'}
       repoUrl={`https://github.com/${username}/${selectedRepos[0]?.name}`}
-      analysisData = {analysisData}
+      analysisData={analysisData}
+      allRepos={repos}
+      onReanalyze={handleReanalyze}
+      onSwitchRepo={handleSwitchRepo}
     />  
   );
 }
