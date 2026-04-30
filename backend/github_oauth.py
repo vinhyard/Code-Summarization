@@ -84,12 +84,23 @@ class EndUserData(BaseModel):
 def github_login():
     # Github handshake
     github = OAuth2Session(CLIENT_ID, redirect_uri=REDIRECT_URI, scope=["read:user", "repo"])
-    # state: randomly generated string. Use Case: Stored for validation.
+    # prompt="consent" forces the authorization screen even if the user has already authorized the app
     authorization_url, state = github.authorization_url(AUTHORIZATION_BASE_URL)
+    """
+    Demo purposes
+    authorization_url, state = github.authorization_url(AUTHORIZATION_BASE_URL, prompt="consent")
+    """
+
     #Store the state in session cookie
     session['oauth_state'] = state
     # Redirect user to Github authorization page
     return redirect(authorization_url)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    # Redirect back to the frontend (defaulting to localhost:5173)
+    return redirect("http://localhost:5173")
 
 # Github redirects to this route after user authorizes their account.
 # Contains a temp auth code 
